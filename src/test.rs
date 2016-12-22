@@ -1,7 +1,21 @@
 use std;
-use std::sync::{Arc, Mutex, Condvar};
-use {ffi, FswSession, FswStatus, FswError, FswMonitorType, FswMonitorFilter, FswFilterType,
-     FswEventFlag, FswEvent};
+use std::sync::{Arc, Mutex, Condvar, Once};
+use {ffi, Fsw, FswSession, FswError, FswMonitorType, FswMonitorFilter, FswFilterType, FswEventFlag,
+     FswEvent};
+cfg_if! {
+  if #[cfg(not(feature = "1_10_0"))] {
+    use FswStatus;
+    use std::sync::atomic::Ordering;
+  } else {}
+}
+
+static FSW_INIT: Once = std::sync::ONCE_INIT;
+
+fn initialize() {
+  FSW_INIT.call_once(|| {
+    Fsw::init_library().unwrap();
+  });
+}
 
 fn get_default_session() -> FswSession {
   FswSession::default().unwrap()
@@ -13,20 +27,23 @@ fn create_sample_filter() -> FswMonitorFilter {
 
 #[test]
 fn create_and_destroy_session() {
+  initialize();
   let handle = {
     let session = get_default_session();
-    session.handle
+    session.handle.clone()
   };
   // Check that the handle was created successfully.
   assert!(handle != ffi::FSW_INVALID_HANDLE);
   // Check that trying to destroy the handle after the session wrapper goes out of scope fails.
   // This should fail because the wrapper going out of scope should automatically destroy the
   // session.
-  assert!(unsafe { ffi::fsw_destroy_session(handle) } != ffi::FSW_OK);
+  #[cfg(not(feature = "1_10_0"))]
+  { assert!(unsafe { ffi::fsw_destroy_session(handle) } != ffi::FSW_OK); }
 }
 
 #[test]
 fn create_session_from_builder() {
+  initialize();
   FswSession::builder()
     .add_path("./")
     .property("test_name", "test_value")
@@ -44,11 +61,13 @@ fn create_session_from_builder() {
 
 #[test]
 fn start_empty() {
+  initialize();
   assert_eq!(Err(FswError::MissingRequiredParameters), get_default_session().start_monitor());
 }
 
 #[test]
 fn start_without_callback() {
+  initialize();
   let session = get_default_session();
   session.add_path("./").unwrap();
   assert_eq!(Err(FswError::MissingRequiredParameters), session.start_monitor());
@@ -56,6 +75,7 @@ fn start_without_callback() {
 
 #[test]
 fn start_without_path() {
+  initialize();
   let session = get_default_session();
   session.set_callback(|_| println!("Hello")).unwrap();
   assert_eq!(Err(FswError::MissingRequiredParameters), session.start_monitor());
@@ -63,36 +83,42 @@ fn start_without_path() {
 
 #[test]
 fn invalid_path() {
+  initialize();
   let session = get_default_session();
   unsafe {
-    assert!(ffi::fsw_add_path(session.handle, ::std::ptr::null()) == ffi::FSW_ERR_INVALID_PATH);
+    assert!(ffi::fsw_add_path(session.handle(), ::std::ptr::null()) == ffi::FSW_ERR_INVALID_PATH);
   }
 }
 
 #[test]
+#[cfg(not(feature = "1_10_0"))]
 fn invalid_handle_add_path() {
+  initialize();
   let mut session = get_default_session();
   // Set handle to the invalid handle before trying to call methods.
   session.handle = ffi::FSW_INVALID_HANDLE;
   let res = session.add_path("./");
   let expected_error = Err(FswError::FromFsw(FswStatus::SessionUnknown));
   assert_eq!(expected_error, res);
-  assert!(!session.path_added.get());
+  assert!(!session.path_added.load(Ordering::Relaxed));
 }
 
 #[test]
+#[cfg(not(feature = "1_10_0"))]
 fn invalid_handle_set_callback() {
+  initialize();
   let mut session = get_default_session();
   // Set handle to the invalid handle before trying to call methods.
   session.handle = ffi::FSW_INVALID_HANDLE;
   let res = session.set_callback(|_| {});
   let expected_error = Err(FswError::FromFsw(FswStatus::SessionUnknown));
   assert_eq!(expected_error, res);
-  assert!(!session.callback_set.get());
+  assert!(!session.callback_set.load(Ordering::Relaxed));
 }
 
 #[test]
 fn run_callback() {
+  initialize();
   // Get the cwd.
   let dir = std::env::current_dir().unwrap();
   // Define the file name for this test.
@@ -166,4 +192,34 @@ fn run_callback() {
   let event_file_name = path.file_name().unwrap().to_string_lossy();
   // Assert that the created file name matches the event's file name.
   assert_eq!(file_name, event_file_name);
+}
+
+#[test]
+#[cfg(feature = "1_10_0")]
+fn stop_monitor() {
+  initialize();
+
+  // Create a new, valid session.
+  let session = FswSession::builder_paths(vec!["./"])
+    .build_callback(|_| {})
+    .unwrap();
+
+  // Create an atomic reference count for the session.
+  let arc = Arc::new(session);
+  // Clone the Arc for the thread.
+  let thread_session = arc.clone();
+
+  // Spawn the thread and get its handle for later.
+  let handle = std::thread::spawn(move || {
+    // Start the monitor, which will block.
+    thread_session.start_monitor().unwrap();
+  });
+
+  // Wait three seconds for the monitor to start. // FIXME: better way
+  std::thread::sleep(std::time::Duration::from_secs(3));
+
+  // Stop the monitor.
+  arc.stop_monitor().unwrap();
+  // Join from the thread, which should no longer be blocking.
+  handle.join().unwrap();
 }

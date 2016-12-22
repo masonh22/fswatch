@@ -33,6 +33,9 @@ extern "C" {
 
   pub fn fsw_start_monitor(handle: FSW_HANDLE) -> FSW_STATUS;
 
+  #[cfg(feature = "1_10_0")]
+  pub fn fsw_stop_monitor(handle: FSW_HANDLE) -> FSW_STATUS;
+
   pub fn fsw_destroy_session(handle: FSW_HANDLE) -> FSW_STATUS;
 
   pub fn fsw_last_error() -> FSW_STATUS;
@@ -43,13 +46,19 @@ extern "C" {
 }
 
 pub type FSW_STATUS = c_int;
-// type FSW_HANDLE = c_uint;
-// Fun story here. FSW_HANDLE is defined as an unsigned int, but it can return a signed int,
-// FSW_INVALID_HANDLE, which is -1. So, we're calling FSW_HANDLE c_int, not c_uint.
-pub type FSW_HANDLE = c_int;
-pub type FSW_CEVENT_CALLBACK = extern fn(events: *const fsw_cevent, event_num: c_uint, data: *mut c_void);
+cfg_if! {
+  if #[cfg(feature = "1_10_0")] {
+    #[derive(Debug, PartialEq)]
+    pub enum FSW_SESSION {}
 
-pub const FSW_INVALID_HANDLE: FSW_HANDLE = -1;
+    pub type FSW_HANDLE = *mut FSW_SESSION;
+    pub const FSW_INVALID_HANDLE: FSW_HANDLE = ::std::ptr::null_mut();
+  } else {
+    pub type FSW_HANDLE = c_int;
+    pub const FSW_INVALID_HANDLE: FSW_HANDLE = -1;
+  }
+}
+pub type FSW_CEVENT_CALLBACK = extern fn(events: *const fsw_cevent, event_num: c_uint, data: *mut c_void);
 
 pub const FSW_OK: FSW_STATUS = 0;
 pub const FSW_ERR_UNKNOWN_ERROR: FSW_STATUS = 1;

@@ -1,8 +1,12 @@
 //! FFI bindings and Rust wrappers for [libfswatch](https://github.com/emcrisostomo/fswatch).
 
+#![feature(unique)]
+#![feature(const_fn)]
 #![allow(non_camel_case_types)]
 
 extern crate libc;
+#[macro_use]
+extern crate cfg_if;
 #[cfg(feature = "use_time")]
 extern crate time;
 
@@ -12,7 +16,9 @@ use std::ffi::{CString, CStr};
 use std::path::{Path, PathBuf};
 use std::collections::HashMap;
 use std::sync::mpsc::{Sender, Receiver, channel};
-use std::cell::Cell;
+use std::sync::atomic::{AtomicBool, Ordering};
+#[cfg(feature = "1_10_0")]
+use std::ptr::Unique;
 
 #[cfg(test)]
 mod test;
@@ -366,11 +372,14 @@ impl FswSessionBuilder {
 ///
 /// Calling [`new`](#method.new) creates a new handle, initiating a new session. Options can be set
 /// before calling [`start_monitor`](#method.start_monitor).
-#[derive(Debug)]
 pub struct FswSession {
+  #[cfg(feature = "1_10_0")]
+  handle: Unique<ffi::FSW_SESSION>,
+  #[cfg(not(feature = "1_10_0"))]
   handle: ffi::FSW_HANDLE,
-  callback_set: Cell<bool>,
-  path_added: Cell<bool>
+  callback_set: AtomicBool,
+  path_added: AtomicBool,
+  started: AtomicBool
 }
 
 impl FswSession {
@@ -380,14 +389,28 @@ impl FswSession {
     if handle == ffi::FSW_INVALID_HANDLE {
       return Err(FswError::FromFsw(FswStatus::UnknownError));
     }
+    let struct_handle = {
+      #[cfg(feature = "1_10_0")]
+      { unsafe { Unique::new(handle) } }
+      #[cfg(not(feature = "1_10_0"))]
+      { handle }
+    };
     Ok(FswSession {
-      handle: handle,
-      callback_set: Cell::new(false),
-      path_added: Cell::new(false)
+      handle: struct_handle,
+      callback_set: AtomicBool::new(false),
+      path_added: AtomicBool::new(false),
+      started: AtomicBool::new(false)
     })
   }
 
-  /// Create a new session and handle, usin gthe system default monitor type.
+  fn handle(&self) -> ffi::FSW_HANDLE {
+    #[cfg(feature = "1_10_0")]
+    { *self.handle }
+    #[cfg(not(feature = "1_10_0"))]
+    { self.handle }
+  }
+
+  /// Create a new session and handle, using the system default monitor type.
   ///
   /// This is a convenience method for `FswSession::new(FswMonitorType::SystemDefaultMonitorType)`.
   pub fn default() -> FswResult<FswSession> {
@@ -424,10 +447,10 @@ impl FswSession {
   pub fn add_path<T: AsRef<Path>>(&self, path: T) -> FswResult<()> {
     let path = path.as_ref().to_string_lossy().into_owned();
     let c_path = CString::new(path).map_err(FswError::NulError)?;
-    let result = unsafe { ffi::fsw_add_path(self.handle, c_path.as_ptr()) };
+    let result = unsafe { ffi::fsw_add_path(self.handle(), c_path.as_ptr()) };
     let res = FswSession::map_result((), result);
     if res.is_ok() {
-      self.path_added.set(true);
+      self.path_added.store(true, Ordering::Relaxed);
     }
     res
   }
@@ -436,13 +459,13 @@ impl FswSession {
   pub fn add_property(&self, name: &str, value: &str) -> FswResult<()> {
     let c_name = CString::new(name).map_err(FswError::NulError)?;
     let c_value = CString::new(value).map_err(FswError::NulError)?;
-    let result = unsafe { ffi::fsw_add_property(self.handle, c_name.as_ptr(), c_value.as_ptr()) };
+    let result = unsafe { ffi::fsw_add_property(self.handle(), c_name.as_ptr(), c_value.as_ptr()) };
     FswSession::map_result((), result)
   }
 
   /// Set whether to allow overflow for this session.
   pub fn set_allow_overflow(&self, allow_overflow: bool) -> FswResult<()> {
-    let result = unsafe { ffi::fsw_set_allow_overflow(self.handle, allow_overflow) };
+    let result = unsafe { ffi::fsw_set_allow_overflow(self.handle(), allow_overflow) };
     FswSession::map_result((), result)
   }
 
@@ -483,35 +506,35 @@ impl FswSession {
   {
     let cb: Box<Box<Fn(Vec<FswEvent>) + 'static>> = Box::new(Box::new(callback));
     let raw = Box::into_raw(cb) as *mut _;
-    let result = unsafe { ffi::fsw_set_callback(self.handle, FswSession::callback_wrapper, raw) };
+    let result = unsafe { ffi::fsw_set_callback(self.handle(), FswSession::callback_wrapper, raw) };
     let res = FswSession::map_result((), result);
     if res.is_ok() {
-      self.callback_set.set(true);
+      self.callback_set.store(true, Ordering::Relaxed);
     }
     res
   }
 
   /// Set the latency for this session.
   pub fn set_latency(&self, latency: c_double) -> FswResult<()> {
-    let result = unsafe { ffi::fsw_set_latency(self.handle, latency) };
+    let result = unsafe { ffi::fsw_set_latency(self.handle(), latency) };
     FswSession::map_result((), result)
   }
 
   /// Set whether this session should be recursive.
   pub fn set_recursive(&self, recursive: bool) -> FswResult<()> {
-    let result = unsafe { ffi::fsw_set_recursive(self.handle, recursive) };
+    let result = unsafe { ffi::fsw_set_recursive(self.handle(), recursive) };
     FswSession::map_result((), result)
   }
 
   /// Set whether this session should be directory only.
   pub fn set_directory_only(&self, directory_only: bool) -> FswResult<()> {
-    let result = unsafe { ffi::fsw_set_directory_only(self.handle, directory_only) };
+    let result = unsafe { ffi::fsw_set_directory_only(self.handle(), directory_only) };
     FswSession::map_result((), result)
   }
 
   /// Set whether this session should follow symlinks.
   pub fn set_follow_symlinks(&self, follow_symlinks: bool) -> FswResult<()> {
-    let result = unsafe { ffi::fsw_set_follow_symlinks(self.handle, follow_symlinks) };
+    let result = unsafe { ffi::fsw_set_follow_symlinks(self.handle(), follow_symlinks) };
     FswSession::map_result((), result)
   }
 
@@ -520,7 +543,7 @@ impl FswSession {
     let filter = ffi::fsw_event_type_filter {
       flag: event_type
     };
-    let result = unsafe { ffi::fsw_add_event_type_filter(self.handle, filter) };
+    let result = unsafe { ffi::fsw_add_event_type_filter(self.handle(), filter) };
     FswSession::map_result((), result)
   }
 
@@ -533,7 +556,7 @@ impl FswSession {
       case_sensitive: filter.case_sensitive,
       extended: filter.extended
     };
-    let result = unsafe { ffi::fsw_add_filter(self.handle, c_filter) };
+    let result = unsafe { ffi::fsw_add_filter(self.handle(), c_filter) };
     FswSession::map_result((), result)
   }
 
@@ -548,7 +571,7 @@ impl FswSession {
   /// least once. To start the monitor without these checks, use
   /// [`start_monitor_unchecked`](#method.start_monitor_unchecked).
   pub fn start_monitor(&self) -> FswResult<()> {
-    if !self.callback_set.get() || !self.path_added.get() {
+    if !self.callback_set.load(Ordering::Relaxed) || !self.path_added.load(Ordering::Relaxed) {
       return Err(FswError::MissingRequiredParameters);
     }
     self._start_monitor()
@@ -568,15 +591,39 @@ impl FswSession {
   }
 
   fn _start_monitor(&self) -> FswResult<()> {
-    let result = unsafe { ffi::fsw_start_monitor(self.handle) };
-    FswSession::map_result((), result)
+    let result = unsafe { ffi::fsw_start_monitor(self.handle()) };
+    let res = FswSession::map_result((), result);
+    if res.is_ok() {
+      self.started.store(true, Ordering::Relaxed);
+    }
+    res
   }
 
   /// Destroy this session, freeing it from memory and invalidating its handle.
   ///
   /// This is called automatically when the session goes out of scope.
+  #[cfg(feature = "1_10_0")]
   pub fn destroy_session(&self) -> FswResult<()> {
-    let result = unsafe { ffi::fsw_destroy_session(self.handle) };
+    if self.started.load(Ordering::Relaxed) {
+      let result = unsafe { ffi::fsw_destroy_session(self.handle()) };
+      FswSession::map_result((), result)
+    } else {
+      Ok(())
+    }
+  }
+  /// Destroy this session, freeing it from memory and invalidating its handle.
+  ///
+  /// This is called automatically when the session goes out of scope.
+  #[cfg(not(feature = "1_10_0"))]
+  pub fn destroy_session(&self) -> FswResult<()> {
+    let result = unsafe { ffi::fsw_destroy_session(self.handle()) };
+    FswSession::map_result((), result)
+  }
+
+  /// Stop the monitor for this session, unblocking `start_monitor` calls.
+  #[cfg(feature = "1_10_0")]
+  pub fn stop_monitor(&self) -> FswResult<()> {
+    let result = unsafe { ffi::fsw_stop_monitor(self.handle()) };
     FswSession::map_result((), result)
   }
 }
@@ -617,7 +664,6 @@ impl Drop for FswSession {
 /// This iterator sets a callback on the `FswSession` it represents, so in order to prevent memory
 /// leaks (see [`set_callback`](struct.FswSession.html#method.set_callback)), only use this iterator
 /// on sessions without callbacks previously set.
-#[derive(Debug)]
 pub struct FswSessionIterator {
   session: Option<FswSession>,
   rx: Receiver<FswEvent>,

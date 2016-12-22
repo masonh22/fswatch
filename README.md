@@ -1,16 +1,17 @@
-# fswatch-sys
-[![Travis](https://img.shields.io/travis/jkcclemens/fswatch-sys.svg)](https://travis-ci.org/jkcclemens/fswatch-sys)
-[![Codecov](https://img.shields.io/codecov/c/github/jkcclemens/fswatch-sys.svg)](https://codecov.io/gh/jkcclemens/fswatch-sys)
-[![Crates.io](https://img.shields.io/crates/v/fswatch-sys.svg)](https://crates.io/crates/fswatch-sys)
-[![Docs.rs](https://img.shields.io/badge/docs-auto-blue.svg)](https://docs.rs/crate/fswatch-sys)
+# fswatch
+[![Travis](https://img.shields.io/travis/jkcclemens/fswatch.svg)](https://travis-ci.org/jkcclemens/fswatch)
+[![Codecov](https://img.shields.io/codecov/c/github/jkcclemens/fswatch.svg)](https://codecov.io/gh/jkcclemens/fswatch)
+[![Crates.io](https://img.shields.io/crates/v/fswatch.svg)](https://crates.io/crates/fswatch)
+[![Docs.rs](https://img.shields.io/badge/docs-auto-blue.svg)](https://docs.rs/crate/fswatch)
 
 This is a Rust crate to integrate with the C API of
-[`libfswatch`](https://github.com/emcrisostomo/fswatch).
+[`libfswatch`](https://github.com/emcrisostomo/fswatch), via
+[`fswatch-sys`](https://github.com/jkcclemens/fswatch-sys).
 
 ```rust
-extern crate fswatch_sys;
+extern crate fswatch;
 
-use fswatch_sys::{Fsw, FswSession};
+use fswatch::{Fsw, FswSession};
 
 fn main() {
   // Initialize the library. This must be called before anything else can be done.
@@ -32,9 +33,9 @@ fn main() {
 ```
 
 ```rust
-extern crate fswatch_sys;
+extern crate fswatch;
 
-use fswatch_sys::{Fsw, FswSessionBuilder};
+use fswatch::{Fsw, FswSessionBuilder};
 
 fn main() {
   Fsw::init_library().expect("Could not start fswatch");
@@ -48,9 +49,9 @@ fn main() {
 ```
 
 ```rust
-extern crate fswatch_sys;
+extern crate fswatch;
 
-use fswatch_sys::{Fsw, FswSession};
+use fswatch::{Fsw, FswSession};
 
 fn main() {
   Fsw::init_library().expect("Could not start fswatch");

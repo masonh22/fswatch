@@ -1,13 +1,14 @@
 [package]
-name = "fswatch-sys"
-version = "0.1.6"
-description = "FFI definitions for libfswatch"
+name = "fswatch"
+version = "0.1.10"
+description = "Rust wrapper for fswatch-sys"
 authors = ["Kyle Clemens <me@kyleclemens.com>"]
 repository = "https://github.com/jkcclemens/fswatch-sys"
 readme = "README.md"
 license = "MPL-2.0"
 
 [dependencies]
+fswatch-sys = "0.1.10"
 libc = "0.2"
 cfg-if = "0.1"
 time = {version = "0.1", optional = true}
@@ -18,4 +19,4 @@ semver = "0.5"
 [features]
 default = []
 use_time = ["time"]
-1_10_0 = []
+fswatch_1_10_0 = ["fswatch-sys/fswatch_1_10_0"]

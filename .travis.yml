@@ -42,7 +42,7 @@ script:
 
 after_success: |
   if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then
-    for file in target/debug/fswatch_sys-*; do
+    for file in target/debug/fswatch-*; do
       mkdir -p "target/cov/$(basename $file)";
       kcov --verify --exclude-pattern=/.cargo,/usr "target/cov/$(basename $file)" "$file";
     done &&

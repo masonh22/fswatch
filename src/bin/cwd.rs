@@ -1,6 +1,6 @@
-extern crate fswatch_sys;
+extern crate fswatch;
 
-use fswatch_sys::{Fsw, FswSession};
+use fswatch::{Fsw, FswSession};
 
 fn main() {
   Fsw::init_library().unwrap();

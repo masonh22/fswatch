@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex, Condvar, Once};
 use {ffi, Fsw, FswSession, FswError, FswMonitorType, FswMonitorFilter, FswFilterType, FswEventFlag,
      FswEvent};
 cfg_if! {
-  if #[cfg(not(feature = "1_10_0"))] {
+  if #[cfg(not(feature = "fswatch_1_10_0"))] {
     use FswStatus;
     use std::sync::atomic::Ordering;
   } else {}
@@ -37,7 +37,7 @@ fn create_and_destroy_session() {
   // Check that trying to destroy the handle after the session wrapper goes out of scope fails.
   // This should fail because the wrapper going out of scope should automatically destroy the
   // session.
-  #[cfg(not(feature = "1_10_0"))]
+  #[cfg(not(feature = "fswatch_1_10_0"))]
   { assert!(unsafe { ffi::fsw_destroy_session(handle) } != ffi::FSW_OK); }
 }
 
@@ -91,7 +91,7 @@ fn invalid_path() {
 }
 
 #[test]
-#[cfg(not(feature = "1_10_0"))]
+#[cfg(not(feature = "fswatch_1_10_0"))]
 fn invalid_handle_add_path() {
   initialize();
   let mut session = get_default_session();
@@ -104,7 +104,7 @@ fn invalid_handle_add_path() {
 }
 
 #[test]
-#[cfg(not(feature = "1_10_0"))]
+#[cfg(not(feature = "fswatch_1_10_0"))]
 fn invalid_handle_set_callback() {
   initialize();
   let mut session = get_default_session();
@@ -195,7 +195,7 @@ fn run_callback() {
 }
 
 #[test]
-#[cfg(feature = "1_10_0")]
+#[cfg(feature = "fswatch_1_10_0")]
 fn stop_monitor() {
   initialize();
 

@@ -806,9 +806,9 @@ impl Iterator for FswSessionIterator {
       self.start();
     }
     while !self.stopped.load(Ordering::Relaxed) {
-      match self.rx.try_recv() {
+      match self.rx.recv_timeout(std::time::Duration::from_secs(1)) {
         Ok(e) => return Some(e),
-        Err(std::sync::mpsc::TryRecvError::Empty) => {},
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {},
         Err(_) => return None
       }
     }

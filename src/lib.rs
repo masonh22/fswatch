@@ -91,7 +91,7 @@ impl From<ffi::FSW_STATUS> for FswStatus {
       ffi::FSW_ERR_INVALID_REGEX => FswStatus::InvalidRegex,
       ffi::FSW_ERR_MONITOR_ALREADY_RUNNING => FswStatus::MonitorAlreadyRunning,
       ffi::FSW_ERR_UNKNOWN_VALUE => FswStatus::UnknownValue,
-      ffi::FSW_ERR_INVALID_PROPERTY => FswStatus::InvalidProprety,
+      ffi::FSW_ERR_INVALID_PROPERTY => FswStatus::InvalidProperty,
       ffi::FSW_ERR_UNKNOWN_ERROR | _ => FswStatus::UnknownError
     }
   }

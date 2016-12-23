@@ -223,3 +223,25 @@ fn stop_monitor() {
   // Join from the thread, which should no longer be blocking.
   handle.join().unwrap();
 }
+
+#[test]
+#[cfg(feature = "fswatch_1_10_0")]
+fn stop_iterator() {
+  initialize();
+
+  let session = FswSession::builder_paths(vec!["./"])
+    .build_callback(|_| {})
+    .unwrap();
+
+  let arc = Arc::new(session);
+  let thread_session = arc.clone();
+
+  let handle = std::thread::spawn(move || {
+    for _ in thread_session.iter() {}
+  });
+
+  std::thread::sleep(std::time::Duration::from_secs(3));
+
+  arc.stop_monitor().unwrap();
+  handle.join().unwrap();
+}

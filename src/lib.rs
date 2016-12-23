@@ -18,6 +18,7 @@ use std::ops::Drop;
 use std::ffi::{CString, CStr};
 use std::path::{Path, PathBuf};
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::sync::mpsc::{Sender, Receiver, channel};
 use std::sync::atomic::{AtomicBool, Ordering};
 #[cfg(feature = "fswatch_1_10_0")]
@@ -692,6 +693,22 @@ impl FswSession {
     let result = unsafe { ffi::fsw_stop_monitor(self.handle()) };
     FswSession::map_result((), result)
   }
+
+  pub fn iter(&self) -> FswSessionIterator {
+    let cloned_handle = {
+      #[cfg(feature = "fswatch_1_10_0")]
+      unsafe { Unique::new(*self.handle) }
+      #[cfg(not(feature = "fswatch_1_10_0"))]
+      { self.handle }
+    };
+    let cloned = FswSession {
+      handle: cloned_handle,
+      callback_set: AtomicBool::new(self.callback_set.load(Ordering::Relaxed)),
+      path_added: AtomicBool::new(self.path_added.load(Ordering::Relaxed)),
+      started: AtomicBool::new(self.started.load(Ordering::Relaxed))
+    };
+    cloned.into_iter()
+  }
 }
 
 impl IntoIterator for FswSession {
@@ -733,7 +750,8 @@ impl Drop for FswSession {
 pub struct FswSessionIterator {
   session: Option<FswSession>,
   rx: Receiver<FswEvent>,
-  started: bool
+  started: bool,
+  stopped: Arc<AtomicBool>
 }
 
 impl FswSessionIterator {
@@ -753,7 +771,8 @@ impl FswSessionIterator {
     FswSessionIterator {
       session: Some(session),
       rx: rx,
-      started: false
+      started: false,
+      stopped: Arc::new(AtomicBool::new(false))
     }
   }
 
@@ -771,8 +790,10 @@ impl FswSessionIterator {
       None => return
     };
     self.started = true;
+    let thread_stopped = self.stopped.clone();
     std::thread::spawn(move || {
       session.start_monitor().unwrap();
+      thread_stopped.store(true, Ordering::Relaxed);
     });
   }
 }
@@ -784,6 +805,13 @@ impl Iterator for FswSessionIterator {
     if !self.started {
       self.start();
     }
-    self.rx.recv().ok()
+    while !self.stopped.load(Ordering::Relaxed) {
+      match self.rx.try_recv() {
+        Ok(e) => return Some(e),
+        Err(std::sync::mpsc::TryRecvError::Empty) => {},
+        Err(_) => return None
+      }
+    }
+    None
   }
 }

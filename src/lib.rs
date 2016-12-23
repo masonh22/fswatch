@@ -67,7 +67,7 @@ pub enum FswStatus {
   InvalidRegex,
   MonitorAlreadyRunning,
   UnknownValue,
-  InvalidProprety
+  InvalidProperty
 }
 
 impl From<ffi::FSW_STATUS> for FswStatus {

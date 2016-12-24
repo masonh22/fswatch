@@ -761,6 +761,9 @@ impl FswSessionIterator {
     Ok(FswSessionIterator::create(session, rx))
   }
 
+  /// Returns a reference to the interal FswSession the iterator was created from.
+  ///
+  /// This simply calls `self.session.clone()`, where `self.session` is an `Arc<FswSession>`.
   pub fn session(&self) -> Arc<FswSession> {
     self.session.clone()
   }

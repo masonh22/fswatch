@@ -57,7 +57,7 @@ fn main() {
   Fsw::init_library().expect("Could not start fswatch");
 
   let session = FswSession::builder().add_path("./").build().unwrap();
-  for event in session {
+  for (_, event) in session {
     println!("{:#?}", event);
   }
 }

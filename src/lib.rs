@@ -712,7 +712,7 @@ impl FswSession {
 }
 
 impl IntoIterator for FswSession {
-  type Item = FswEvent;
+  type Item = (Arc<FswSession>, FswEvent);
   type IntoIter = FswSessionIterator;
 
   fn into_iter(self) -> Self::IntoIter {
@@ -748,7 +748,7 @@ impl Drop for FswSession {
 /// leaks (see [`set_callback`](struct.FswSession.html#method.set_callback)), only use this iterator
 /// on sessions without callbacks previously set.
 pub struct FswSessionIterator {
-  session: Option<FswSession>,
+  session: Arc<FswSession>,
   rx: Receiver<FswEvent>,
   started: bool,
   stopped: Arc<AtomicBool>
@@ -761,6 +761,10 @@ impl FswSessionIterator {
     Ok(FswSessionIterator::create(session, rx))
   }
 
+  pub fn session(&self) -> Arc<FswSession> {
+    self.session.clone()
+  }
+
   fn assume_new(session: FswSession) -> Self {
     let (tx, rx) = channel();
     let _ = FswSessionIterator::adapt_session(&session, tx);
@@ -769,7 +773,7 @@ impl FswSessionIterator {
 
   fn create(session: FswSession, rx: Receiver<FswEvent>) -> Self {
     FswSessionIterator {
-      session: Some(session),
+      session: Arc::new(session),
       rx: rx,
       started: false,
       stopped: Arc::new(AtomicBool::new(false))
@@ -785,21 +789,18 @@ impl FswSessionIterator {
   }
 
   fn start(&mut self) {
-    let session = match self.session.take() {
-      Some(s) => s,
-      None => return
-    };
     self.started = true;
+    let thread_session = self.session();
     let thread_stopped = self.stopped.clone();
     std::thread::spawn(move || {
-      session.start_monitor().unwrap();
+      thread_session.start_monitor().unwrap();
       thread_stopped.store(true, Ordering::Relaxed);
     });
   }
 }
 
 impl Iterator for FswSessionIterator {
-  type Item = FswEvent;
+  type Item = (Arc<FswSession>, FswEvent);
 
   fn next(&mut self) -> Option<Self::Item> {
     if !self.started {
@@ -807,7 +808,7 @@ impl Iterator for FswSessionIterator {
     }
     while !self.stopped.load(Ordering::Relaxed) {
       match self.rx.recv_timeout(std::time::Duration::from_secs(1)) {
-        Ok(e) => return Some(e),
+        Ok(e) => return Some((self.session(), e)),
         Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {},
         Err(_) => return None
       }

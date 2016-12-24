@@ -147,12 +147,15 @@ fn run_callback() {
     // Send a signal to the main thread that we're ready for the file to be created.
     tx.send(()).unwrap();
     // Use the iterator pattern but immediately break out of it. This will leave the monitor running
-    // and accumulating events (as the C API provides no way to stop a monitor).
-    for event in session {
+    // and accumulating events if using below fswatch 1.10.0.
+    for (s, event) in session {
       // Once we get an event, notify our waiting condvar and return the event.
       let mut started = lock.lock().unwrap();
       *started = true;
       cvar.notify_one();
+      // Stop the monitor on 1.10.0.
+      #[cfg(feature = "fswatch_1_10_0")]
+      { s.stop_monitor().unwrap(); }
       return event;
     }
     // This should be unreachable code, so panic if we get here.
@@ -244,4 +247,27 @@ fn stop_iterator() {
 
   arc.stop_monitor().unwrap();
   handle.join().unwrap();
+}
+
+#[test]
+fn start_two_iterators() {
+  initialize();
+
+  let session = FswSession::builder_paths(vec!["./"])
+    .build_callback(|_| {})
+    .unwrap();
+
+  let arc = Arc::new(session);
+  let thread_session = arc.clone();
+
+  std::thread::spawn(move || {
+    for _ in thread_session.iter() {}
+  });
+
+  std::thread::sleep(std::time::Duration::from_secs(3));
+
+  assert!(arc.start_monitor().is_err());
+
+  #[cfg(feature = "fswatch_1_10_0")]
+  { arc.stop_monitor().unwrap(); }
 }

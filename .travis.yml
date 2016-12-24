@@ -7,48 +7,26 @@ os:
 dist: trusty
 sudo: required
 
-before_install:
-  - if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then
-      sudo apt-get -qq update &&
-      sudo apt-get install -y libcurl4-openssl-dev libelf-dev libdw-dev cmake gcc binutils-dev libiberty-dev zlib1g-dev &&
-      wget https://github.com/SimonKagstrom/kcov/archive/master.tar.gz &&
-      tar xzf master.tar.gz &&
-      cd kcov-master &&
-      mkdir build &&
-      cd build &&
-      cmake .. &&
-      make &&
-      sudo make install &&
-      cd ../.. &&
-      rm -rf kcov-master master.tar.gz &&
-      wget https://github.com/emcrisostomo/fswatch/releases/download/1.9.3/fswatch-1.9.3.tar.gz &&
-      tar xzf fswatch-1.9.3.tar.gz &&
-      cd fswatch-1.9.3 &&
-      ./configure &&
-      make &&
-      sudo make install &&
-      sudo ldconfig &&
-      cd .. &&
-      rm -rf fswatch-1.9.3 fswatch-1.9.3.tar.gz;
-    fi
-  - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then
-      brew update &&
-      brew install fswatch;
-    fi
+addons:
+  apt:
+    packages:
+    - libcurl4-openssl-dev
+    - libelf-dev
+    - libdw-dev
+    - cmake
+    - gcc
+    - binutils-dev
+    - libiberty-dev
+    - zlib1g-dev
+    - gettext
+    - autopoint
+    - texinfo
 
-script:
-  - cargo test --verbose
-  - cargo test --verbose --features use_time
+before_install: .travis/before_install.sh
 
-after_success: |
-  if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then
-    for file in target/debug/fswatch-*; do
-      mkdir -p "target/cov/$(basename $file)";
-      kcov --verify --exclude-pattern=/.cargo,/usr "target/cov/$(basename $file)" "$file";
-    done &&
-    bash <(curl -s https://codecov.io/bash) &&
-    echo "Uploaded code coverage";
-  fi
+script: .travis/script.sh
+
+after_success: .travis/after_success.sh
 
 notifications:
   email: false

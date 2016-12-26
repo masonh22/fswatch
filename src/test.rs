@@ -211,15 +211,22 @@ fn stop_monitor() {
   let arc = Arc::new(session);
   // Clone the Arc for the thread.
   let thread_session = arc.clone();
+  // Create channel for sending signals.
+  let (tx, rx) = std::sync::mpsc::channel();
 
   // Spawn the thread and get its handle for later.
   let handle = std::thread::spawn(move || {
+    // Send the signal that the thread has started.
+    tx.send(()).unwrap();
     // Start the monitor, which will block.
     thread_session.start_monitor().unwrap();
   });
 
+  // Wait for the signal.
+  rx.recv().unwrap();
+
   // Wait three seconds for the monitor to start. // FIXME: better way
-  std::thread::sleep(std::time::Duration::from_secs(3));
+  std::thread::sleep(std::time::Duration::from_secs(1));
 
   // Stop the monitor.
   arc.stop_monitor().unwrap();
@@ -238,12 +245,16 @@ fn stop_iterator() {
 
   let arc = Arc::new(session);
   let thread_session = arc.clone();
+  let (tx, rx) = std::sync::mpsc::channel();
 
   let handle = std::thread::spawn(move || {
+    tx.send(()).unwrap();
     for _ in thread_session.iter() {}
   });
 
-  std::thread::sleep(std::time::Duration::from_secs(3));
+  rx.recv().unwrap();
+
+  std::thread::sleep(std::time::Duration::from_secs(1));
 
   arc.stop_monitor().unwrap();
   handle.join().unwrap();
@@ -259,12 +270,16 @@ fn start_two_iterators() {
 
   let arc = Arc::new(session);
   let thread_session = arc.clone();
+  let (tx, rx) = std::sync::mpsc::channel();
 
   std::thread::spawn(move || {
+    tx.send(()).unwrap();
     for _ in thread_session.iter() {}
   });
 
-  std::thread::sleep(std::time::Duration::from_secs(3));
+  rx.recv().unwrap();
+
+  std::thread::sleep(std::time::Duration::from_secs(1));
 
   assert!(arc.start_monitor().is_err());
 

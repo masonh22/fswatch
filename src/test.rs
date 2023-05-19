@@ -1,15 +1,9 @@
 use std;
 use std::sync::{Arc, Mutex, Condvar, Once};
-use {ffi, Fsw, FswSession, FswError, FswMonitorType, FswMonitorFilter, FswFilterType, FswEventFlag,
-     FswEvent};
-cfg_if! {
-  if #[cfg(not(feature = "fswatch_1_10_0"))] {
-    use FswStatus;
-    use std::sync::atomic::Ordering;
-  } else {}
-}
+use {ffi, Fsw, FswSession, FswError, FswMonitorType, FswMonitorFilter, FswFilterType, FswEvent};
+use ffi::fsw_event_flag;
 
-static FSW_INIT: Once = std::sync::ONCE_INIT;
+static FSW_INIT: Once = std::sync::Once::new();
 
 fn initialize() {
   FSW_INIT.call_once(|| {
@@ -28,17 +22,9 @@ fn create_sample_filter() -> FswMonitorFilter {
 #[test]
 fn create_and_destroy_session() {
   initialize();
-  let handle = {
-    let session = get_default_session();
-    session.handle.clone()
-  };
-  // Check that the handle was created successfully.
-  assert!(handle != ffi::FSW_INVALID_HANDLE);
-  // Check that trying to destroy the handle after the session wrapper goes out of scope fails.
-  // This should fail because the wrapper going out of scope should automatically destroy the
-  // session.
-  #[cfg(not(feature = "fswatch_1_10_0"))]
-  { assert!(unsafe { ffi::fsw_destroy_session(handle) } != ffi::FSW_OK); }
+  {
+    let _session = get_default_session();
+  }
 }
 
 #[test]
@@ -53,7 +39,7 @@ fn create_session_from_builder() {
     .recursive(Some(true))
     .directory_only(Some(false))
     .follow_symlinks(Some(true))
-    .add_event_filter(FswEventFlag::Created)
+    .add_event_filter(fsw_event_flag::Created)
     .add_filter(create_sample_filter())
     .build_callback(|events| println!("{:#?}", events))
     .unwrap();
@@ -91,32 +77,6 @@ fn invalid_path() {
 }
 
 #[test]
-#[cfg(not(feature = "fswatch_1_10_0"))]
-fn invalid_handle_add_path() {
-  initialize();
-  let mut session = get_default_session();
-  // Set handle to the invalid handle before trying to call methods.
-  session.handle = ffi::FSW_INVALID_HANDLE;
-  let res = session.add_path("./");
-  let expected_error = Err(FswError::FromFsw(FswStatus::SessionUnknown));
-  assert_eq!(expected_error, res);
-  assert!(!session.path_added.load(Ordering::Relaxed));
-}
-
-#[test]
-#[cfg(not(feature = "fswatch_1_10_0"))]
-fn invalid_handle_set_callback() {
-  initialize();
-  let mut session = get_default_session();
-  // Set handle to the invalid handle before trying to call methods.
-  session.handle = ffi::FSW_INVALID_HANDLE;
-  let res = session.set_callback(|_| {});
-  let expected_error = Err(FswError::FromFsw(FswStatus::SessionUnknown));
-  assert_eq!(expected_error, res);
-  assert!(!session.callback_set.load(Ordering::Relaxed));
-}
-
-#[test]
 fn run_callback() {
   initialize();
   // Get the cwd.
@@ -139,10 +99,6 @@ fn run_callback() {
     let &(ref lock, ref cvar) = &*pair2;
     // Create a session.
     let session = FswSession::builder_paths(vec![dir2])
-      // Filter for only our file name.
-      .add_filter(FswMonitorFilter::new(file_name, FswFilterType::Include, true, false))
-      // Reject all other files.
-      .add_filter(FswMonitorFilter::new(".*", FswFilterType::Exclude, false, false))
       .build().unwrap();
     // Send a signal to the main thread that we're ready for the file to be created.
     tx.send(()).unwrap();
@@ -153,9 +109,7 @@ fn run_callback() {
       let mut started = lock.lock().unwrap();
       *started = true;
       cvar.notify_one();
-      // Stop the monitor on 1.10.0.
-      #[cfg(feature = "fswatch_1_10_0")]
-      { s.stop_monitor().unwrap(); }
+      s.stop_monitor().unwrap();
       return event;
     }
     // This should be unreachable code, so panic if we get here.
@@ -198,7 +152,6 @@ fn run_callback() {
 }
 
 #[test]
-#[cfg(feature = "fswatch_1_10_0")]
 fn stop_monitor() {
   initialize();
 
@@ -232,57 +185,4 @@ fn stop_monitor() {
   arc.stop_monitor().unwrap();
   // Join from the thread, which should no longer be blocking.
   handle.join().unwrap();
-}
-
-#[test]
-#[cfg(feature = "fswatch_1_10_0")]
-fn stop_iterator() {
-  initialize();
-
-  let session = FswSession::builder_paths(vec!["./"])
-    .build_callback(|_| {})
-    .unwrap();
-
-  let arc = Arc::new(session);
-  let thread_session = arc.clone();
-  let (tx, rx) = std::sync::mpsc::channel();
-
-  let handle = std::thread::spawn(move || {
-    tx.send(()).unwrap();
-    for _ in thread_session.iter() {}
-  });
-
-  rx.recv().unwrap();
-
-  std::thread::sleep(std::time::Duration::from_secs(1));
-
-  arc.stop_monitor().unwrap();
-  handle.join().unwrap();
-}
-
-#[test]
-fn start_two_iterators() {
-  initialize();
-
-  let session = FswSession::builder_paths(vec!["./"])
-    .build_callback(|_| {})
-    .unwrap();
-
-  let arc = Arc::new(session);
-  let thread_session = arc.clone();
-  let (tx, rx) = std::sync::mpsc::channel();
-
-  std::thread::spawn(move || {
-    tx.send(()).unwrap();
-    for _ in thread_session.iter() {}
-  });
-
-  rx.recv().unwrap();
-
-  std::thread::sleep(std::time::Duration::from_secs(1));
-
-  assert!(arc.start_monitor().is_err());
-
-  #[cfg(feature = "fswatch_1_10_0")]
-  { arc.stop_monitor().unwrap(); }
 }

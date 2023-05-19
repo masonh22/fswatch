@@ -1,17 +1,12 @@
 //! FFI bindings and Rust wrappers for [libfswatch](https://github.com/emcrisostomo/fswatch).
 
-#![feature(unique)]
-#![feature(const_fn)]
-#![allow(non_camel_case_types)]
-
 pub extern crate fswatch_sys;
 extern crate libc;
-#[macro_use]
-extern crate cfg_if;
 #[cfg(feature = "use_time")]
 extern crate time;
 
 pub use fswatch_sys as ffi;
+use ffi::fsw_event_flag;
 
 use libc::{c_uint, c_void, c_double};
 use std::ops::Drop;
@@ -21,8 +16,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::mpsc::{Sender, Receiver, channel};
 use std::sync::atomic::{AtomicBool, Ordering};
-#[cfg(feature = "fswatch_1_10_0")]
-use std::ptr::Unique;
+use std::ptr::NonNull;
 
 #[cfg(test)]
 mod test;
@@ -123,70 +117,6 @@ impl From<FswMonitorType> for ffi::fsw_monitor_type {
   }
 }
 
-/// Flags denoting the operation(s) within an event.
-#[derive(Debug, PartialEq, Clone)]
-pub enum FswEventFlag {
-  NoOp,
-  PlatformSpecific,
-  Created,
-  Updated,
-  Removed,
-  Renamed,
-  OwnerModified,
-  AttributeModified,
-  MovedFrom,
-  MovedTo,
-  IsFile,
-  IsDir,
-  IsSymLink,
-  Link,
-  Overflow
-}
-
-impl From<FswEventFlag> for ffi::fsw_event_flag {
-  fn from(flag: FswEventFlag) -> ffi::fsw_event_flag {
-    match flag {
-      FswEventFlag::NoOp => ffi::fsw_event_flag::NoOp,
-      FswEventFlag::PlatformSpecific => ffi::fsw_event_flag::PlatformSpecific,
-      FswEventFlag::Created => ffi::fsw_event_flag::Created,
-      FswEventFlag::Updated => ffi::fsw_event_flag::Updated,
-      FswEventFlag::Removed => ffi::fsw_event_flag::Removed,
-      FswEventFlag::Renamed => ffi::fsw_event_flag::Renamed,
-      FswEventFlag::OwnerModified => ffi::fsw_event_flag::OwnerModified,
-      FswEventFlag::AttributeModified => ffi::fsw_event_flag::AttributeModified,
-      FswEventFlag::MovedFrom => ffi::fsw_event_flag::MovedFrom,
-      FswEventFlag::MovedTo => ffi::fsw_event_flag::MovedTo,
-      FswEventFlag::IsFile => ffi::fsw_event_flag::IsFile,
-      FswEventFlag::IsDir => ffi::fsw_event_flag::IsDir,
-      FswEventFlag::IsSymLink => ffi::fsw_event_flag::IsSymLink,
-      FswEventFlag::Link => ffi::fsw_event_flag::Link,
-      FswEventFlag::Overflow => ffi::fsw_event_flag::Overflow
-    }
-  }
-}
-
-impl<'a> From<&'a ffi::fsw_event_flag> for FswEventFlag {
-  fn from(flag: &'a ffi::fsw_event_flag) -> FswEventFlag {
-    match *flag {
-      ffi::fsw_event_flag::NoOp => FswEventFlag::NoOp,
-      ffi::fsw_event_flag::PlatformSpecific => FswEventFlag::PlatformSpecific,
-      ffi::fsw_event_flag::Created => FswEventFlag::Created,
-      ffi::fsw_event_flag::Updated => FswEventFlag::Updated,
-      ffi::fsw_event_flag::Removed => FswEventFlag::Removed,
-      ffi::fsw_event_flag::Renamed => FswEventFlag::Renamed,
-      ffi::fsw_event_flag::OwnerModified => FswEventFlag::OwnerModified,
-      ffi::fsw_event_flag::AttributeModified => FswEventFlag::AttributeModified,
-      ffi::fsw_event_flag::MovedFrom => FswEventFlag::MovedFrom,
-      ffi::fsw_event_flag::MovedTo => FswEventFlag::MovedTo,
-      ffi::fsw_event_flag::IsFile => FswEventFlag::IsFile,
-      ffi::fsw_event_flag::IsDir => FswEventFlag::IsDir,
-      ffi::fsw_event_flag::IsSymLink => FswEventFlag::IsSymLink,
-      ffi::fsw_event_flag::Link => FswEventFlag::Link,
-      ffi::fsw_event_flag::Overflow => FswEventFlag::Overflow
-    }
-  }
-}
-
 /// A monitor filter.
 #[derive(Debug)]
 pub struct FswMonitorFilter {
@@ -244,7 +174,7 @@ pub struct FswEvent {
   #[cfg(not(feature = "use_time"))]
   pub time: i64,
   /// The flags set on this event.
-  pub flags: Vec<FswEventFlag>
+  pub flags: fsw_event_flag
 }
 
 /// Static methods for fswatch.
@@ -287,7 +217,7 @@ pub struct FswSessionBuilder {
   recursive: Option<bool>,
   directory_only: Option<bool>,
   follow_symlinks: Option<bool>,
-  event_type_filters: Vec<FswEventFlag>,
+  event_type_filters: fsw_event_flag,
   filters: Vec<FswMonitorFilter>
 }
 
@@ -318,7 +248,7 @@ impl FswSessionBuilder {
       recursive: Default::default(),
       directory_only: Default::default(),
       follow_symlinks: Default::default(),
-      event_type_filters: Default::default(),
+      event_type_filters: fsw_event_flag::NoOp,
       filters: Default::default()
     }
   }
@@ -349,12 +279,10 @@ impl FswSessionBuilder {
     if let Some(follow_symlinks) = self.follow_symlinks {
       session.set_follow_symlinks(follow_symlinks)?;
     }
-    for event_type in self.event_type_filters {
-      session.add_event_type_filter(event_type)?;
-    }
     for filter in self.filters {
       session.add_filter(filter)?;
     }
+    session.set_event_type_filters(self.event_type_filters)?;
     Ok(session)
   }
 
@@ -422,8 +350,14 @@ impl FswSessionBuilder {
   }
 
   /// Add an event flag filter for this session.
-  pub fn add_event_filter(mut self, filter_type: FswEventFlag) -> Self {
-    self.event_type_filters.push(filter_type);
+  pub fn add_event_filter(mut self, filter_type: fsw_event_flag) -> Self {
+    self.event_type_filters |= filter_type;
+    self
+  }
+
+  /// Set the event type filters for this session.
+  pub fn set_event_filters(mut self, filter_type: fsw_event_flag) -> Self {
+    self.event_type_filters = filter_type;
     self
   }
 
@@ -439,10 +373,7 @@ impl FswSessionBuilder {
 /// Calling [`new`](#method.new) creates a new handle, initiating a new session. Options can be set
 /// before calling [`start_monitor`](#method.start_monitor).
 pub struct FswSession {
-  #[cfg(feature = "fswatch_1_10_0")]
-  handle: Unique<ffi::FSW_SESSION>,
-  #[cfg(not(feature = "fswatch_1_10_0"))]
-  handle: ffi::FSW_HANDLE,
+  handle: NonNull<ffi::FSW_SESSION>,
   callback_set: AtomicBool,
   path_added: AtomicBool,
   started: AtomicBool
@@ -452,28 +383,20 @@ impl FswSession {
   /// Create a new session and handle, using the given monitor type.
   pub fn new(monitor_type: FswMonitorType) -> FswResult<FswSession> {
     let handle = unsafe { ffi::fsw_init_session(monitor_type.into()) };
-    if handle == ffi::FSW_INVALID_HANDLE {
-      return Err(FswError::FromFsw(FswStatus::UnknownError));
+    if let Some(handle_ptr) = NonNull::new(handle) {
+      Ok(FswSession {
+        handle: handle_ptr,
+        callback_set: AtomicBool::new(false),
+        path_added: AtomicBool::new(false),
+        started: AtomicBool::new(false)
+      })
+    } else {
+      Err(FswError::FromFsw(FswStatus::UnknownError))
     }
-    let struct_handle = {
-      #[cfg(feature = "fswatch_1_10_0")]
-      { unsafe { Unique::new(handle) } }
-      #[cfg(not(feature = "fswatch_1_10_0"))]
-      { handle }
-    };
-    Ok(FswSession {
-      handle: struct_handle,
-      callback_set: AtomicBool::new(false),
-      path_added: AtomicBool::new(false),
-      started: AtomicBool::new(false)
-    })
   }
 
   fn handle(&self) -> ffi::FSW_HANDLE {
-    #[cfg(feature = "fswatch_1_10_0")]
-    { *self.handle }
-    #[cfg(not(feature = "fswatch_1_10_0"))]
-    { self.handle }
+    self.handle.as_ptr()
   }
 
   /// Create a new session and handle, using the system default monitor type.
@@ -538,24 +461,23 @@ impl FswSession {
   extern fn callback_wrapper(events: *const ffi::fsw_cevent, event_num: c_uint, data: *mut c_void) {
     let events: &[ffi::fsw_cevent] = unsafe { std::slice::from_raw_parts(events, event_num as usize) };
     let mapped_events = events.iter()
-      .map(|x| {
-        let path = unsafe { CStr::from_ptr(x.path) }.to_string_lossy().to_string();
-        let flags = unsafe { std::slice::from_raw_parts(x.flags, x.flags_num as usize) };
-        let flags = flags.iter().map(Into::into).collect();
+      .map(|event| {
+        let path = unsafe { CStr::from_ptr(event.path) }.to_string_lossy().to_string();
+        let flags = event.flags;
         let time = {
           #[cfg(feature = "use_time")]
-          { time::at(time::Timespec::new(x.evt_time, 0)) }
+          { time::at(time::Timespec::new(event.evt_time, 0)) }
           #[cfg(not(feature = "use_time"))]
-          { x.evt_time }
+          { event.evt_time }
         };
         FswEvent {
-          path: path,
-          time: time,
-          flags: flags
+          path,
+          time,
+          flags
         }
       })
       .collect();
-    let closure: &Box<Fn(Vec<FswEvent>) + 'static> = unsafe { &*(data as *const Box<Fn(Vec<FswEvent>) + 'static>) };
+    let closure: &Box<dyn Fn(Vec<FswEvent>) + 'static> = unsafe { &*(data as *const Box<dyn Fn(Vec<FswEvent>) + 'static>) };
     closure(mapped_events);
   }
 
@@ -571,7 +493,7 @@ impl FswSession {
   pub fn set_callback<F>(&self, callback: F) -> FswResult<()>
     where F: Fn(Vec<FswEvent>) + 'static
   {
-    let cb: Box<Box<Fn(Vec<FswEvent>) + 'static>> = Box::new(Box::new(callback));
+    let cb: Box<Box<dyn Fn(Vec<FswEvent>) + 'static>> = Box::new(Box::new(callback));
     let raw = Box::into_raw(cb) as *mut _;
     let result = unsafe { ffi::fsw_set_callback(self.handle(), FswSession::callback_wrapper, raw) };
     let res = FswSession::map_result((), result);
@@ -606,11 +528,14 @@ impl FswSession {
   }
 
   /// Add an event filter for the given event flag.
-  pub fn add_event_type_filter(&self, event_type: FswEventFlag) -> FswResult<()> {
-    let filter = ffi::fsw_event_type_filter {
-      flag: event_type.into()
-    };
+  pub fn add_event_type_filter(&self, filter: ffi::fsw_event_type_filter) -> FswResult<()> {
     let result = unsafe { ffi::fsw_add_event_type_filter(self.handle(), filter) };
+    FswSession::map_result((), result)
+  }
+
+  /// Set the event filter to a bitmask.
+  pub fn set_event_type_filters(&self, filter: ffi::fsw_event_type_filter) -> FswResult<()> {
+    let result = unsafe { ffi::fsw_set_event_type_filters(self.handle(), filter) };
     FswSession::map_result((), result)
   }
 
@@ -669,45 +594,15 @@ impl FswSession {
   /// Destroy this session, freeing it from memory and invalidating its handle.
   ///
   /// This is called automatically when the session goes out of scope.
-  #[cfg(feature = "fswatch_1_10_0")]
-  pub fn destroy_session(&self) -> FswResult<()> {
-    if self.started.load(Ordering::Relaxed) {
-      let result = unsafe { ffi::fsw_destroy_session(self.handle()) };
-      FswSession::map_result((), result)
-    } else {
-      Ok(())
-    }
-  }
-  /// Destroy this session, freeing it from memory and invalidating its handle.
-  ///
-  /// This is called automatically when the session goes out of scope.
-  #[cfg(not(feature = "fswatch_1_10_0"))]
   pub fn destroy_session(&self) -> FswResult<()> {
     let result = unsafe { ffi::fsw_destroy_session(self.handle()) };
     FswSession::map_result((), result)
   }
 
   /// Stop the monitor for this session, unblocking `start_monitor` calls.
-  #[cfg(feature = "fswatch_1_10_0")]
   pub fn stop_monitor(&self) -> FswResult<()> {
     let result = unsafe { ffi::fsw_stop_monitor(self.handle()) };
     FswSession::map_result((), result)
-  }
-
-  pub fn iter(&self) -> FswSessionIterator {
-    let cloned_handle = {
-      #[cfg(feature = "fswatch_1_10_0")]
-      unsafe { Unique::new(*self.handle) }
-      #[cfg(not(feature = "fswatch_1_10_0"))]
-      { self.handle }
-    };
-    let cloned = FswSession {
-      handle: cloned_handle,
-      callback_set: AtomicBool::new(self.callback_set.load(Ordering::Relaxed)),
-      path_added: AtomicBool::new(self.path_added.load(Ordering::Relaxed)),
-      started: AtomicBool::new(self.started.load(Ordering::Relaxed))
-    };
-    cloned.into_iter()
   }
 }
 
@@ -727,6 +622,10 @@ impl Drop for FswSession {
     let _ = self.destroy_session();
   }
 }
+
+unsafe impl Send for FswSession {}
+
+unsafe impl Sync for FswSession {}
 
 /// An iterator over the events reported by a [`FswSession`](struct.FswSession.html).
 ///

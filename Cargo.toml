@@ -8,12 +8,10 @@ readme = "README.md"
 license = "MPL-2.0"
 
 [dependencies]
-fswatch-sys = "0.1.10"
+fswatch-sys = { path = "../fswatch-sys" }
 libc = "0.2"
-cfg-if = "0.1"
 time = {version = "0.1", optional = true}
 
 [features]
 default = []
 use_time = ["time"]
-fswatch_1_10_0 = ["fswatch-sys/fswatch_1_10_0"]

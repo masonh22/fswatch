@@ -1,8 +1,4 @@
 # fswatch
-[![Travis](https://img.shields.io/travis/jkcclemens/fswatch.svg)](https://travis-ci.org/jkcclemens/fswatch)
-[![Codecov](https://img.shields.io/codecov/c/github/jkcclemens/fswatch.svg)](https://codecov.io/gh/jkcclemens/fswatch)
-[![Crates.io](https://img.shields.io/crates/v/fswatch.svg)](https://crates.io/crates/fswatch)
-[![Docs.rs](https://img.shields.io/badge/docs-auto-blue.svg)](https://docs.rs/crate/fswatch)
 
 This is a Rust crate to integrate with the C API of
 [`libfswatch`](https://github.com/emcrisostomo/fswatch), via

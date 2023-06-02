@@ -164,7 +164,7 @@ impl From<FswFilterType> for ffi::fsw_filter_type {
 /// This is most likely what will be used most in this library. No changes done to this struct or
 /// its fields will affect libfswatch. All the data is a copy of the original, to ensure no memory
 /// invalidation in C.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct FswEvent {
   /// The file path for this event.
   pub path: String,
